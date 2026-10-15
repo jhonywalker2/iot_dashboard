@@ -121,14 +121,6 @@ if not df.empty:
         title="Smoothed Data (10min avg)"
     )
 
-    st.plotly_chart(fig2, use_container_width=True)
-
-    # ---------------------------
-    # RAW DATA
-    # ---------------------------
-    st.subheader("📋 Datos crudos")
-    st.dataframe(df.tail(50))
-
 else:
     st.warning("No hay datos disponibles en este rango de tiempo")
 
