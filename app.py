@@ -9,9 +9,9 @@ from plotly.colors import sample_colorscale
 # ---------------------------
 # CONFIG (usa st.secrets, ver nota abajo)
 # ---------------------------
-url = st.secrets["INFLUX_URL"]
-token = st.secrets["INFLUX_TOKEN"]
-org = st.secrets["INFLUX_ORG"]
+url = "https://us-east-1-1.aws.cloud2.influxdata.com"
+token = "5FESPQw5t4qA4GgZmyeZ9mu7u1sbtauo4Hh8tjRi1E8sdrIgzXAX5ESk4n5MmcpAjJWEGgEKklFX0LNasnUmng=="
+org = "miguelcmo"
 bucket = "iot_telemetry_data"
 
 # ---------------------------
