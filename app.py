@@ -1,14 +1,17 @@
+import time
 import streamlit as st
 from influxdb_client import InfluxDBClient
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
+from plotly.colors import sample_colorscale
 
 # ---------------------------
-# CONFIG
+# CONFIG (usa st.secrets, ver nota abajo)
 # ---------------------------
-url = "https://us-east-1-1.aws.cloud2.influxdata.com"
-token = "5FESPQw5t4qA4GgZmyeZ9mu7u1sbtauo4Hh8tjRi1E8sdrIgzXAX5ESk4n5MmcpAjJWEGgEKklFX0LNasnUmng=="
-org = "miguelcmo"
+url = st.secrets["INFLUX_URL"]
+token = st.secrets["INFLUX_TOKEN"]
+org = st.secrets["INFLUX_ORG"]
 bucket = "iot_telemetry_data"
 
 # ---------------------------
@@ -19,7 +22,6 @@ st.set_page_config(page_title="IoT Dashboard", layout="wide")
 st.title("🌡️ IoT Telemetry Dashboard")
 st.markdown("Monitoreo de temperatura y humedad en tiempo real")
 
-# Sidebar
 st.sidebar.header("Configuración")
 
 time_range = st.sidebar.selectbox(
@@ -29,6 +31,77 @@ time_range = st.sidebar.selectbox(
 )
 
 refresh = st.sidebar.slider("Auto-refresh (segundos)", 0, 60, 10)
+
+# ---------------------------
+# COLORES DINÁMICOS
+# ---------------------------
+# Temperatura: azul (frío) -> verde -> amarillo -> rojo (caliente)
+TEMP_MIN, TEMP_MAX = 0, 45
+TEMP_SCALE = [
+    [0.0, "#2b83ba"],
+    [0.35, "#abdda4"],
+    [0.55, "#ffffbf"],
+    [0.75, "#fdae61"],
+    [1.0, "#d7191c"],
+]
+
+# Humedad: amarillo/naranja (seco) -> azul claro -> azul oscuro (muy húmedo)
+HUM_MIN, HUM_MAX = 0, 100
+HUM_SCALE = [
+    [0.0, "#f4a742"],
+    [0.3, "#a6d8f0"],
+    [0.6, "#4a90d9"],
+    [1.0, "#08306b"],
+]
+
+def get_color(value, vmin, vmax, scale):
+    """Devuelve un color según la posición del valor dentro del rango."""
+    if pd.isna(value):
+        return "#999999"
+    pos = (value - vmin) / (vmax - vmin)
+    pos = max(0.0, min(1.0, pos))
+    return sample_colorscale(scale, pos)[0]
+
+def vertical_bar(value, title, unit, vmin, vmax, scale):
+    """Barra vertical tipo termómetro con color dinámico."""
+    color = get_color(value, vmin, vmax, scale)
+
+    fig = go.Figure()
+    # Fondo (rango completo)
+    fig.add_trace(go.Bar(
+        x=[title],
+        y=[vmax - vmin],
+        marker_color="rgba(150,150,150,0.2)",
+        hoverinfo="skip",
+        width=0.5,
+    ))
+    # Valor actual
+    fig.add_trace(go.Bar(
+        x=[title],
+        y=[value - vmin],
+        marker_color=color,
+        marker_line_color="rgba(0,0,0,0.3)",
+        marker_line_width=1,
+        text=[f"{value:.2f} {unit}"],
+        textposition="outside",
+        hovertemplate=f"{title}: {value:.2f} {unit}<extra></extra>",
+        width=0.5,
+    ))
+    fig.update_layout(
+        barmode="overlay",
+        showlegend=False,
+        height=350,
+        margin=dict(l=10, r=10, t=30, b=10),
+        yaxis=dict(
+            range=[0, (vmax - vmin) * 1.12],
+            tickmode="array",
+            tickvals=[v - vmin for v in range(int(vmin), int(vmax) + 1, max(1, int((vmax - vmin) / 5)))],
+            ticktext=[str(v) for v in range(int(vmin), int(vmax) + 1, max(1, int((vmax - vmin) / 5)))],
+            title=unit,
+        ),
+        xaxis=dict(tickfont=dict(size=14)),
+    )
+    return fig
 
 # ---------------------------
 # DATA FUNCTION
@@ -57,6 +130,8 @@ def load_data(time_range):
         return df
 
     df["_time"] = pd.to_datetime(df["_time"])
+    df["temperature"] = pd.to_numeric(df["temperature"], errors="coerce")
+    df["humidity"] = pd.to_numeric(df["humidity"], errors="coerce")
     df = df.sort_values("_time")
 
     return df
@@ -67,15 +142,34 @@ def load_data(time_range):
 df = load_data(time_range)
 
 # ---------------------------
-# METRICS
+# METRICS (barras verticales, dispuestas horizontalmente)
 # ---------------------------
 if not df.empty:
+    st.subheader("📊 Indicadores")
+
     col1, col2, col3, col4 = st.columns(4)
 
-    col1.metric("🌡️ Temp actual", f"{df['temperature'].iloc[-1]:.2f} °C")
-    col2.metric("💧 Humedad actual", f"{df['humidity'].iloc[-1]:.2f} %")
-    col3.metric("📊 Temp promedio", f"{df['temperature'].mean():.2f} °C")
-    col4.metric("📊 Humedad promedio", f"{df['humidity'].mean():.2f} %")
+    temp_now = df["temperature"].iloc[-1]
+    hum_now = df["humidity"].iloc[-1]
+    temp_avg = df["temperature"].mean()
+    hum_avg = df["humidity"].mean()
+
+    col1.plotly_chart(
+        vertical_bar(temp_now, "🌡️ Temp actual", "°C", TEMP_MIN, TEMP_MAX, TEMP_SCALE),
+        use_container_width=True,
+    )
+    col2.plotly_chart(
+        vertical_bar(hum_now, "💧 Humedad actual", "%", HUM_MIN, HUM_MAX, HUM_SCALE),
+        use_container_width=True,
+    )
+    col3.plotly_chart(
+        vertical_bar(temp_avg, "🌡️ Temp promedio", "°C", TEMP_MIN, TEMP_MAX, TEMP_SCALE),
+        use_container_width=True,
+    )
+    col4.plotly_chart(
+        vertical_bar(hum_avg, "💧 Humedad promedio", "%", HUM_MIN, HUM_MAX, HUM_SCALE),
+        use_container_width=True,
+    )
 
 # ---------------------------
 # CHARTS
@@ -90,23 +184,10 @@ if not df.empty:
         y=["temperature", "humidity"],
         title="Temperature & Humidity"
     )
-
     st.plotly_chart(fig, use_container_width=True)
 
-    # ---------------------------
-    # RESAMPLING
-    # ---------------------------
     st.subheader("⏱️ Promedio cada 10 minutos")
 
-    #df_resampled = df.set_index("_time").resample("10min").mean().dropna()
-    # Asegurar tipos numéricos
-    df["temperature"] = pd.to_numeric(df["temperature"], errors="coerce")
-    df["humidity"] = pd.to_numeric(df["humidity"], errors="coerce")
-    
-    # Asegurar datetime index
-    df["_time"] = pd.to_datetime(df["_time"])
-    
-    # Resample SOLO columnas numéricas
     df_resampled = (
         df.set_index("_time")[["temperature", "humidity"]]
         .resample("10min")
@@ -120,9 +201,7 @@ if not df.empty:
         y=["temperature", "humidity"],
         title="Smoothed Data (10min avg)"
     )
-
     st.plotly_chart(fig2, use_container_width=True)
-
 
 else:
     st.warning("No hay datos disponibles en este rango de tiempo")
@@ -131,4 +210,5 @@ else:
 # AUTO REFRESH
 # ---------------------------
 if refresh > 0:
+    time.sleep(refresh)
     st.rerun()
